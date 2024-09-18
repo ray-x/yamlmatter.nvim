@@ -31,7 +31,7 @@ You see this:
  type        post
 ```
 
-![image](https://gist.github.com/user-attachments/assets/9fc3b7f2-c5cd-40e7-95fd-36f44449f48b)
+![image](https://github.com/ray-x/files/blob/master/img/others/frontmatter.jpg)
 
 ## Prerequisites
 
