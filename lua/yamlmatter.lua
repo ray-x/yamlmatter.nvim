@@ -240,11 +240,9 @@ function M.setup(user_config)
 
   -- Define highlight groups if they don't exist
   local function define_hl(group, default)
-    -- if not pcall(vim.api.nvim_get_hl, group, true) then
-    -- if vim.fn.empty(vim.api.nvim_get_hl(0, { name = group })) == 1 then
-    print(group, vim.inspect(default))
-    vim.api.nvim_set_hl(0, group, default)
-    -- end
+    if vim.fn.empty(vim.api.nvim_get_hl(0, { name = group })) == 1 then
+      vim.api.nvim_set_hl(0, group, default)
+    end
   end
 
   define_hl(M.config.highlight_groups.icon, { link = 'Identifier' })
@@ -252,8 +250,12 @@ function M.setup(user_config)
   define_hl(M.config.highlight_groups.value, { link = 'Type' })
 
   -- Create user commands
-  vim.api.nvim_create_user_command('YamlMatter', M.display_frontmatter, {})
-  vim.api.nvim_create_user_command('ResetYamlMatter', M.reset_frontmatter_view, {})
+  vim.api.nvim_create_user_command('YamlMatter', require('yamlmatter').display_frontmatter, {})
+  vim.api.nvim_create_user_command(
+    'ResetYamlMatter',
+    require('yamlmatter').reset_frontmatter_view,
+    {}
+  )
 end
 
 return M
