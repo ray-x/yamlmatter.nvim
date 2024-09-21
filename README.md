@@ -53,9 +53,16 @@ require('yamlmatter').setup({
     key = 'MyKeyHighlight',
     value = 'MyValueHighlight',
   },
-  key_value_padding = 2, -- Less space
+  key_value_padding = 4, -- Less space
+  conceallevel = 1, -- on what level start conceal the yaml text
+
 })
 ```
+
+## Commands
+
+By default if plugin setup, you can use `:YamlMatter` to toggle the display of YAML front matter and use
+`:YamlMatterDisable` to disable it.
 
 ## License
 

@@ -87,19 +87,9 @@ function M.display_frontmatter()
 
   -- Check conceallevel and it does not work when conceallevel is 0
   if vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) < M.config.conceallevel then
-    print('conceallevel is less than ' .. M.config.conceallevel)
-    -- Conceallevel is less than 2; do not render YAML frontmatter
+    -- print('conceallevel is less than ' .. M.config.conceallevel)
     return
   end
-
-  -- Ensure the front matter starts with '---'
-  if lines[1] ~= '---' then
-    -- No front matter found at the beginning of the file.
-    -- TODO: handle yaml file
-    print('No front matter found at the beginning of the file.')
-    return
-  end
-
   -- Conceal the starting '---' line
   vim.api.nvim_buf_set_extmark(bufnr, ns_id, 0, 0, {
     end_line = 0,
@@ -107,6 +97,13 @@ function M.display_frontmatter()
     hl_group = 'Conceal',
     conceal = '',
   })
+  -- Ensure the front matter starts with '---'
+  if lines[1] ~= '---' then
+    -- No front matter found at the beginning of the file.
+    -- TODO: handle yaml file
+    -- print('No front matter found at the beginning of the file.')
+    return
+  end
 
   -- Extract front matter lines between the first and second '---'
   local frontmatter = {}
@@ -238,11 +235,14 @@ function M.display_frontmatter()
 end
 
 -- Function to reset the view
-function M.reset_frontmatter_view()
+function M.reset_frontmatter_view(disable)
   local bufnr = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
   extmark_ids = {}
   -- Re-render the frontmatter if conceallevel is >= config.conceallevel
+  if disable then
+    return
+  end
   if
     vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) >= M.config.conceallevel
   then
@@ -309,7 +309,10 @@ function M.setup(user_config)
 
   -- Create user commands
   vim.api.nvim_create_user_command('YamlMatter', M.display_frontmatter, {})
-  vim.api.nvim_create_user_command('ResetYamlMatter', M.reset_frontmatter_view, {})
+  vim.api.nvim_create_user_command('YamlMatterReset', M.reset_frontmatter_view, {})
+  vim.api.nvim_create_user_command('YamlMatterDisable', function()
+    M.reset_frontmatter_view(true)
+  end, {})
 
   -- Set up autocmds
   vim.api.nvim_create_augroup('YamlFrontmatterGroup', { clear = true })
