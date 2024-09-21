@@ -3,6 +3,7 @@ local M = {}
 -- Default configuration
 M.config = {
   key_value_padding = 4, -- Default padding between key and value
+  conceallevel = 1, -- on what level start conceal the yaml text
   icon_mappings = {
     -- Default icon mappings
     title = '',
@@ -21,6 +22,7 @@ M.config = {
     icon = 'Identifier',
     key = 'Function',
     value = 'Type',
+    parameter = 'String', -- New highlight group for parameters
   },
 }
 
@@ -29,6 +31,9 @@ local ns_id = vim.api.nvim_create_namespace('YamlFrontmatterAlign')
 
 -- Table to keep track of extmarks for resetting
 local extmark_ids = {}
+
+-- Table to keep track of un-concealed lines in insert mode
+local unconcealed_lines = {}
 
 local function parse_yaml(yaml_text)
   local data = {}
@@ -79,14 +84,18 @@ function M.display_frontmatter()
 
   local bufnr = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  -- check conceallevel and it does not work when conceallevel is 0
-  if vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) == 0 then
-    print('Conceallevel is set to 0. Set it to 2 or higher to use this plugin.')
+
+  -- Check conceallevel and it does not work when conceallevel is 0
+  if vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) < M.config.conceallevel then
+    print('conceallevel is less than ' .. M.config.conceallevel)
+    -- Conceallevel is less than 2; do not render YAML frontmatter
     return
   end
 
   -- Ensure the front matter starts with '---'
   if lines[1] ~= '---' then
+    -- No front matter found at the beginning of the file.
+    -- TODO: handle yaml file
     print('No front matter found at the beginning of the file.')
     return
   end
@@ -119,12 +128,13 @@ function M.display_frontmatter()
   end
 
   if not end_line then
-    print("Closing '---' for front matter not found.")
+    -- Closing '---' for front matter not found.
+    print('Closing --- for front matter not found.')
     return
   end
 
   if #frontmatter == 0 then
-    print('Front matter is empty.')
+    -- Front matter is empty.
     return
   end
 
@@ -232,6 +242,53 @@ function M.reset_frontmatter_view()
   local bufnr = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
   extmark_ids = {}
+  -- Re-render the frontmatter if conceallevel is >= config.conceallevel
+  if
+    vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) >= M.config.conceallevel
+  then
+    M.display_frontmatter()
+  end
+end
+
+-- Function to un-conceal the current line
+local function unconceal_current_line()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1 -- Convert to 0-based index
+  local col = cursor[2]
+
+  -- Check if the current line has an extmark in the namespace
+  local extmarks = vim.api.nvim_buf_get_extmarks(
+    bufnr,
+    ns_id,
+    { row, 0 },
+    { row, -1 },
+    { details = true }
+  )
+
+  if #extmarks > 0 then
+    for _, extmark in ipairs(extmarks) do
+      local extmark_id = extmark[1]
+      local _, start_col, end_col = unpack(
+        extmark[4].end_col and { extmark[2], extmark[3], extmark[4].end_col }
+          or { extmark[2], extmark[3], extmark[3] }
+      )
+
+      -- Remove the extmark to un-conceal the line
+      vim.api.nvim_buf_del_extmark(bufnr, ns_id, extmark_id)
+      -- Optionally, remove any virtual text if present
+    end
+  end
+end
+
+-- Function to handle cursor movement in insert mode
+function M.on_cursor_moved_i()
+  unconceal_current_line()
+end
+
+-- Function to handle leaving insert mode
+function M.on_insert_leave()
+  M.display_frontmatter()
 end
 
 -- Setup function for user configuration
@@ -248,14 +305,63 @@ function M.setup(user_config)
   define_hl(M.config.highlight_groups.icon, { link = 'Identifier' })
   define_hl(M.config.highlight_groups.key, { link = 'Function' })
   define_hl(M.config.highlight_groups.value, { link = 'Type' })
+  define_hl(M.config.highlight_groups.parameter, { link = 'String' }) -- Define parameter highlight
 
   -- Create user commands
-  vim.api.nvim_create_user_command('YamlMatter', require('yamlmatter').display_frontmatter, {})
-  vim.api.nvim_create_user_command(
-    'ResetYamlMatter',
-    require('yamlmatter').reset_frontmatter_view,
-    {}
-  )
+  vim.api.nvim_create_user_command('YamlMatter', M.display_frontmatter, {})
+  vim.api.nvim_create_user_command('ResetYamlMatter', M.reset_frontmatter_view, {})
+
+  -- Set up autocmds
+  vim.api.nvim_create_augroup('YamlFrontmatterGroup', { clear = true })
+
+  -- Auto-render YAML frontmatter on buffer events
+  vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWritePost', 'TextChanged', 'InsertLeave' }, {
+    group = 'YamlFrontmatterGroup',
+    pattern = { '*.md', '*.rmd' },
+    callback = function()
+      require('yamlmatter').display_frontmatter()
+    end,
+  })
+
+  -- Toggle rendering based on conceallevel changes
+  -- seems not working?
+  vim.api.nvim_create_autocmd('OptionSet', {
+    group = 'YamlFrontmatterGroup',
+    pattern = 'conceallevel',
+    callback = function(opts)
+      -- double check if conceallevel is changed
+      if opts.match ~= 'conceallevel' then
+        return
+      end
+      -- get current conceallevel
+
+      local cl = vim.api.nvim_get_option_value('conceallevel', { scope = 'local' })
+      if cl >= M.config.conceallevel then
+        require('yamlmatter').display_frontmatter()
+      else
+        require('yamlmatter').reset_frontmatter_view()
+      end
+    end,
+  })
+
+  -- Un-conceal current line in insert mode when cursor moves
+  vim.api.nvim_create_autocmd('CursorMovedI', {
+    group = 'YamlFrontmatterGroup',
+    pattern = { '*.md', '*.rmd' },
+    -- callback = on_cursor_moved_i,
+    callback = function()
+      require('yamlmatter').on_cursor_moved_i()
+    end,
+  })
+
+  -- Re-conceal frontmatter when leaving insert mode
+  vim.api.nvim_create_autocmd('InsertLeave', {
+    group = 'YamlFrontmatterGroup',
+    pattern = { '*.md', '*.rmd' },
+    callback = function()
+      require('yamlmatter').on_insert_leave()
+    end,
+  })
 end
 
 return M
