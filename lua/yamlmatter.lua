@@ -78,25 +78,15 @@ end
 
 -- Function to align YAML front matter
 function M.display_frontmatter()
-  -- Clear existing extmarks
-  vim.api.nvim_buf_clear_namespace(0, ns_id, 0, -1)
-  extmark_ids = {}
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
   -- Check conceallevel and it does not work when conceallevel is 0
   if vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) < M.config.conceallevel then
     -- print('conceallevel is less than ' .. M.config.conceallevel)
     return
   end
-  -- Conceal the starting '---' line
-  vim.api.nvim_buf_set_extmark(bufnr, ns_id, 0, 0, {
-    end_line = 0,
-    end_col = #lines[1],
-    hl_group = 'Conceal',
-    conceal = '',
-  })
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
   -- Ensure the front matter starts with '---'
   if lines[1] ~= '---' then
     -- No front matter found at the beginning of the file.
@@ -105,6 +95,19 @@ function M.display_frontmatter()
     return
   end
 
+  -- Clear existing extmarks
+  vim.api.nvim_buf_clear_namespace(0, ns_id, 0, -1)
+  extmark_ids = {}
+
+  -- Conceal the starting '---' line
+  local id = vim.api.nvim_buf_set_extmark(bufnr, ns_id, 0, 0, {
+    end_line = 0,
+    end_col = #lines[1],
+    hl_group = 'Conceal',
+    conceal = '',
+  })
+  extmark_ids[1] = id
+
   -- Extract front matter lines between the first and second '---'
   local frontmatter = {}
   local end_line
@@ -112,12 +115,13 @@ function M.display_frontmatter()
     if lines[i] == '---' then
       end_line = i
       -- Conceal the ending '---' line
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, i - 1, 0, {
+      id = vim.api.nvim_buf_set_extmark(bufnr, ns_id, i - 1, 0, {
         end_line = i - 1,
         end_col = #lines[i],
         hl_group = 'Conceal',
         conceal = '',
       })
+      extmark_ids[i] = id
       break
     else
       table.insert(frontmatter, lines[i])
