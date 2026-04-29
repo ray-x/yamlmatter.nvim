@@ -33,6 +33,15 @@ You see this:
 
 ![image](https://github.com/ray-x/files/blob/master/img/others/frontmatter.jpg)
 
+Long values are wrapped to the current window width, and keys with dashes such as
+`user-invocable` are rendered correctly.
+
+The default icon set also includes common agent metadata keys such as `name`,
+`description`, `system_prompt`, `instructions`, `tools`, `model_name`,
+`temperature`, `max_loops`, `max_iterations`, `user-invocable`, `verbose`, and
+`debug`, with support for kebab-case aliases like `system-prompt`,
+`model-name`, `max-loops`, and `user-invocable`.
+
 ## Prerequisites
 
 - Neovim 0.9+
@@ -67,4 +76,3 @@ By default if plugin setup, you can use `:YamlMatter` to toggle the display of Y
 ## License
 
 This plugin is licensed under the MIT License.
-

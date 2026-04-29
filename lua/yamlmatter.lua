@@ -13,6 +13,24 @@ M.config = {
     tags = '',
     category = '',
     type = '',
+    -- Agent-oriented mappings
+    name = '',
+    description = '',
+    system_prompt = '',
+    ['system-prompt'] = '',
+    instructions = '',
+    tools = '',
+    model_name = '󰚩',
+    ['model-name'] = '󰚩',
+    temperature = '',
+    max_loops = '',
+    ['max-loops'] = '',
+    max_iterations = '󰪢',
+    ['max-iterations'] = '󰪢',
+    user_invocable = '',
+    ['user-invocable'] = '',
+    verbose = '',
+    debug = '',
     default = '󰦨',
   },
   highlight_groups = {
@@ -35,6 +53,107 @@ local extmark_ids = {}
 -- Table to keep track of un-concealed lines in insert mode
 local unconcealed_lines = {}
 
+local function trim(text)
+  return text:match('^%s*(.-)%s*$')
+end
+
+local function get_window_text_width(winid)
+  local width = vim.api.nvim_win_get_width(winid)
+  local wininfo = vim.fn.getwininfo(winid)[1]
+  local textoff = wininfo and wininfo.textoff or 0
+  return math.max(width - textoff, 1)
+end
+
+local function take_display_width(text, width)
+  local part = {}
+  local current_width = 0
+  local char_count = vim.fn.strchars(text)
+  local consumed = 0
+
+  for i = 0, char_count - 1 do
+    local char = vim.fn.strcharpart(text, i, 1)
+    local char_width = vim.fn.strdisplaywidth(char)
+    if current_width > 0 and current_width + char_width > width then
+      break
+    end
+    table.insert(part, char)
+    current_width = current_width + char_width
+    consumed = i + 1
+    if current_width >= width then
+      break
+    end
+  end
+
+  return table.concat(part), vim.fn.strcharpart(text, consumed)
+end
+
+local function wrap_text(text, width)
+  if text == '' then
+    return { '' }
+  end
+
+  local lines = {}
+  local current = ''
+  local current_width = 0
+  local tokens = {}
+  local pos = 1
+
+  while pos <= #text do
+    local s, e = text:find('%s+', pos)
+    if s == pos then
+      table.insert(tokens, text:sub(s, e))
+      pos = e + 1
+    else
+      s, e = text:find('%S+', pos)
+      if not s then
+        break
+      end
+      table.insert(tokens, text:sub(s, e))
+      pos = e + 1
+    end
+  end
+
+  local function push_current()
+    local line = current:gsub('%s+$', '')
+    table.insert(lines, line)
+    current = ''
+    current_width = 0
+  end
+
+  for _, token in ipairs(tokens) do
+    local remainder = token
+
+    while remainder ~= '' do
+      if current == '' and remainder:match('^%s+$') then
+        remainder = ''
+      else
+        local token_width = vim.fn.strdisplaywidth(remainder)
+        if current_width + token_width <= width then
+          current = current .. remainder
+          current_width = current_width + token_width
+          remainder = ''
+        elseif current ~= '' then
+          push_current()
+          remainder = remainder:gsub('^%s+', '')
+        else
+          local part
+          part, remainder = take_display_width(remainder, width)
+          current = part
+          current_width = vim.fn.strdisplaywidth(part)
+          push_current()
+          remainder = remainder:gsub('^%s+', '')
+        end
+      end
+    end
+  end
+
+  if current ~= '' or #lines == 0 then
+    push_current()
+  end
+
+  return lines
+end
+
 local function parse_yaml(yaml_text)
   local data = {}
   local lines = {}
@@ -49,7 +168,8 @@ local function parse_yaml(yaml_text)
     -- Remove leading whitespace
     local indent, trimmed_line = line:match('^(%s*)(.-)%s*$')
     -- Check for key-value pair
-    local key, value = trimmed_line:match('^([%w_]+)%s*:%s*(.-)%s*$')
+    local key, value = trimmed_line:match('^([^:]+)%s*:%s*(.-)%s*$')
+    key = key and trim(key) or nil
     if key then
       if value ~= '' then
         -- Simple key-value pair
@@ -85,6 +205,7 @@ function M.display_frontmatter()
   end
 
   local bufnr = vim.api.nvim_get_current_buf()
+  local winid = vim.api.nvim_get_current_win()
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
   -- Ensure the front matter starts with '---'
@@ -168,6 +289,7 @@ function M.display_frontmatter()
 
   -- Apply configurable padding
   max_key_length = max_key_length + M.config.key_value_padding
+  local value_width = math.max(get_window_text_width(winid) - max_key_length, 1)
 
   -- Add virtual text for alignment
   local i = 1
@@ -211,28 +333,34 @@ function M.display_frontmatter()
       else
         display_value = tostring(display_value)
       end
-
-      -- Conceal the entire line
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, i - 1, 0, {
-        end_line = i - 1,
-        end_col = #line,
-        hl_group = 'Conceal',
-        conceal = '',
-      })
-
-      -- Build virt_text with different highlight groups
+      local wrapped_value = wrap_text(display_value, value_width)
       local virt_text = {
         { icon .. ' ', M.config.highlight_groups.icon },
         { key_trimmed, M.config.highlight_groups.key },
         { padding_spaces, '' }, -- No highlight group for padding
-        { display_value, M.config.highlight_groups.value },
+        { wrapped_value[1], M.config.highlight_groups.value },
       }
 
-      -- Add virtual text
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, i - 1, -1, {
+      local extmark_opts = {
+        end_line = i - 1,
+        end_col = #line,
+        hl_group = 'Conceal',
+        conceal = '',
         virt_text = virt_text,
         virt_text_pos = 'overlay',
-      })
+      }
+
+      if #wrapped_value > 1 then
+        extmark_opts.virt_lines = {}
+        for wrap_index = 2, #wrapped_value do
+          table.insert(extmark_opts.virt_lines, {
+            { string.rep(' ', max_key_length), '' },
+            { wrapped_value[wrap_index], M.config.highlight_groups.value },
+          })
+        end
+      end
+
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, i - 1, 0, extmark_opts)
     end
     i = i + 1
   end
@@ -247,9 +375,7 @@ function M.reset_frontmatter_view(disable)
   if disable then
     return
   end
-  if
-    vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) >= M.config.conceallevel
-  then
+  if vim.api.nvim_get_option_value('conceallevel', { scope = 'local' }) >= M.config.conceallevel then
     M.display_frontmatter()
   end
 end
@@ -262,20 +388,13 @@ local function unconceal_current_line()
   local col = cursor[2]
 
   -- Check if the current line has an extmark in the namespace
-  local extmarks = vim.api.nvim_buf_get_extmarks(
-    bufnr,
-    ns_id,
-    { row, 0 },
-    { row, -1 },
-    { details = true }
-  )
+  local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, ns_id, { row, 0 }, { row, -1 }, { details = true })
 
   if #extmarks > 0 then
     for _, extmark in ipairs(extmarks) do
       local extmark_id = extmark[1]
       local _, start_col, end_col = unpack(
-        extmark[4].end_col and { extmark[2], extmark[3], extmark[4].end_col }
-          or { extmark[2], extmark[3], extmark[3] }
+        extmark[4].end_col and { extmark[2], extmark[3], extmark[4].end_col } or { extmark[2], extmark[3], extmark[3] }
       )
 
       -- Remove the extmark to un-conceal the line
@@ -322,7 +441,7 @@ function M.setup(user_config)
   vim.api.nvim_create_augroup('YamlFrontmatterGroup', { clear = true })
 
   -- Auto-render YAML frontmatter on buffer events
-  vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWritePost', 'TextChanged', 'InsertLeave' }, {
+  vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWritePost', 'TextChanged', 'InsertLeave', 'VimResized' }, {
     group = 'YamlFrontmatterGroup',
     pattern = { '*.md', '*.rmd' },
     callback = function()
